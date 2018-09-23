@@ -1,12 +1,7 @@
-/*
-TODO:
-- future (maybe):
-    - toggle/select view-source
-    - local http server for auto-updating preview
-*/
 package main
 
 import (
+	"flag"
 	"io"
 	"io/ioutil"
 	"log"
@@ -17,18 +12,58 @@ import (
 	"github.com/russross/blackfriday"
 )
 
-func main() {
-	for _, path := range os.Args[1:] {
-		markdown, err := ioutil.ReadFile(path)
-		checkErr(err)
-		html := blackfriday.MarkdownCommon(markdown)
+func render(path string) []byte {
+	markdown, err := ioutil.ReadFile(path)
+	checkErr(err)
+	return blackfriday.MarkdownCommon(markdown)
+}
 
+func main() {
+	var (
+		addr    string
+		port    int
+		preview bool
+	)
+	flag.StringVar(
+		&addr,
+		"addr",
+		"",
+		"(preview only) leave blank for 0.0.0.0",
+	)
+	flag.IntVar(
+		&port,
+		"port",
+		8080,
+		"(preview only)",
+	)
+	flag.BoolVar(
+		&preview,
+		"preview",
+		false,
+		"start an HTTP server to preview live changes to md files",
+	)
+	flag.Parse()
+
+	if preview {
+		if len(flag.Args()) != 1 {
+			log.Fatalln("usage: md -preview [MARKDOWN FILE]")
+		}
+		serveHTTP(addr, port, flag.Args()[0])
+	}
+
+	for _, path := range flag.Args() {
 		filename := strings.TrimSuffix(path, filepath.Ext(path)) + ".html"
 		f, err := os.Create(filename)
 		checkErr(err)
-		_, err = io.WriteString(f, boilerplate)
+		_, err = io.WriteString(f, boilerplateHTML)
 		checkErr(err)
-		_, err = f.Write(html)
+		_, err = io.WriteString(f, boilerplateCSS)
+		checkErr(err)
+		_, err = io.WriteString(f, renderJS)
+		checkErr(err)
+		_, err = io.WriteString(f, "</head><body>")
+		checkErr(err)
+		_, err = f.Write(render(path))
 		checkErr(err)
 		_, err = io.WriteString(f, "</body></html>")
 		checkErr(err)
@@ -44,10 +79,13 @@ func checkErr(err error) {
 	}
 }
 
-const boilerplate = `<!DOCTYPE html>
+const boilerplateHTML = `<!DOCTYPE html>
 <html>
     <head>
         <meta charset='utf-8'>
+`
+
+const boilerplateCSS = `
         <style>
 body {
     max-width: 800px;
@@ -192,15 +230,81 @@ a.hashbang:hover {
     }
 }
         </style>
+`
+
+const renderJS = `
         <script>
-document.addEventListener("DOMContentLoaded", () => {
+var contentloadedCallback = () => {
     [].forEach.call(document.querySelectorAll("h1,h2,h3,h4,h5,h6"), (hElement) => {
         hElement.id = hElement.textContent.toLowerCase().replace(/[^a-z0-9_]+/g, '-')
         hElement.insertAdjacentHTML("afterbegin", '<a href="#'+hElement.id+'" class="hashbang">#</a>')
     });
     [].forEach.call(document.querySelectorAll("table"), (tableElement) => tableElement.setAttribute("border", "1"));
-});
+};
+document.addEventListener("DOMContentLoaded", contentloadedCallback);
         </script>
-    </head>
-    <body>
+`
+
+const previewJS = `
+        <script>
+var Sorbet = (function(S){
+
+    /**
+     * eventSource
+     *
+     * Create an EventSource from url and attach event listeners in format:
+     * listeners = {
+     *   "eventname": function(event) { ... }
+     * }
+     */
+    S.eventSource = function(url, listeners) {
+        var es = new EventSource(url);
+        es.retryCount = es.retryCount || 0;
+        if(es.retryCount > 5) {
+            console.log("EventSource error! Connecting to "+url
+                    +" FAILED after "+es.retryCount+" retries :(");
+        }
+
+        window.addEventListener("popstate",     function(){es.close();}, false);
+        window.addEventListener("beforeunload", function(){es.close();}, false);
+        window.addEventListener("unload",       function(){es.close();}, false);
+
+        es.addEventListener('error', function(event){
+            console.log("EventSource error!");
+
+            //  getting an error event and a readyState of closed
+            //  means that there was a connection error and the 
+            //  eventsource must be manually re-opened
+            //
+            //  NOTE(tso): this just spams the console if the server is down,
+            //  disabling for now until we can find a better solution
+            //
+            // if(es.readyState === EventSource.CLOSED) {
+            //     es.close();
+            //     es.retryCount++
+            //     es = S.eventSource(url, listeners);
+            // }
+        });
+
+        Object.keys(listeners).forEach(function(event){
+            es.addEventListener(event, listeners[event]);
+        });
+        return es;
+    };
+
+    return S;
+}(Sorbet || {}));
+    Sorbet.eventSource("/es", {
+        "update": function(evt) {
+            var scrollY = window.scrollY;
+            fetch("/update")
+            .then((response) => response.text())
+            .then((html) => {
+                document.body.innerHTML = html;
+                contentloadedCallback();
+                window.scrollTo(0, scrollY);
+            })
+        }
+    });
+        </script>
 `
