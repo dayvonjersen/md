@@ -23,6 +23,7 @@ func serveHTTP(addr string, port int, path string) {
 	checkErr(err)
 	watch.w.Add(".")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("->", r.Method, r.URL)
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprintf(w, boilerplateHTML)
 		fmt.Fprintf(w, "<title>[live preview] %s</title>\n", path)
@@ -34,20 +35,28 @@ func serveHTTP(addr string, port int, path string) {
 		fmt.Fprintf(w, "</body></html>")
 	})
 	http.HandleFunc("/es", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("->", r.Method, r.URL)
 		w.Header().Add("Content-Type", "text/event-stream")
 		w.Header().Add("Access-Control-Allow-Origin", "*")
 		id := time.Now().Unix()
-		log.Println("CONNECT", id)
+		log.Printf("[event-source:%d] connected", id)
 		for {
-			<-ch
-			fmt.Fprintf(w, "id: %d\r\nevent: update\r\ndata: asdf\r\n\r\n", id)
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-				log.Println("sent event")
+			select {
+			case <-ch:
+				evt := fmt.Sprintf("id: %d\r\nevent: update\r\ndata: %d\r\n\r\n", id, time.Now().Unix())
+				fmt.Fprintf(w, evt)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+					log.Printf("[event-source:%d] sent event: %#v", id, evt)
+				}
+			case <-r.Context().Done():
+				log.Printf("[event-source:%d] exited", id)
+				return
 			}
 		}
 	})
 	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("->", r.Method, r.URL)
 		w.Write(render(path))
 	})
 
