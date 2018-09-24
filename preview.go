@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
-func serveHTTP(addr string, port int, path string) {
+func serveHTTP(addr string, port int, default_path string) {
+	path := default_path
 	ch := make(chan struct{})
 	watch, err := newWatcher(
 		func(p string) bool {
@@ -23,16 +26,35 @@ func serveHTTP(addr string, port int, path string) {
 	checkErr(err)
 	watch.w.Add(".")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("->", r.Method, r.URL)
+		var req_path string
+		log.Println("->", r.Method, r.URL.Path)
+		if r.URL.Path == "/" {
+			path = default_path
+			goto default_route
+		}
+		req_path = strings.TrimPrefix(r.URL.Path, "/")
+		if fileExists(req_path) {
+			switch strings.ToLower(filepath.Ext(req_path)) {
+			case ".md", ".mdown", ".markdown", ".mkd":
+				path = req_path
+				goto default_route
+			}
+			http.ServeFile(w, r, req_path)
+			return
+		}
+		w.WriteHeader(404)
+		fmt.Fprintln(w, "404", r.URL.Path, "was not found on this server.")
+		return
+	default_route:
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, boilerplateHTML)
+		fmt.Fprint(w, boilerplateHTML)
 		fmt.Fprintf(w, "<title>[live preview] %s</title>\n", path)
-		fmt.Fprintf(w, boilerplateCSS)
-		fmt.Fprintf(w, renderJS)
-		fmt.Fprintf(w, previewJS)
-		fmt.Fprintf(w, "</head><body>")
+		fmt.Fprint(w, boilerplateCSS)
+		fmt.Fprint(w, renderJS)
+		fmt.Fprint(w, previewJS)
+		fmt.Fprint(w, "</head><body>")
 		w.Write(render(path))
-		fmt.Fprintf(w, "</body></html>")
+		fmt.Fprint(w, "</body></html>")
 	})
 	http.HandleFunc("/es", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("->", r.Method, r.URL)
@@ -44,7 +66,7 @@ func serveHTTP(addr string, port int, path string) {
 			select {
 			case <-ch:
 				evt := fmt.Sprintf("id: %d\r\nevent: update\r\ndata: %d\r\n\r\n", id, time.Now().Unix())
-				fmt.Fprintf(w, evt)
+				fmt.Fprint(w, evt)
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
 					log.Printf("[event-source:%d] sent event: %#v", id, evt)
@@ -132,4 +154,14 @@ func (w *watcher) dispatch() {
 
 func normalizePathSeparators(path string) string {
 	return strings.Replace(path, "\\", "/", -1)
+}
+
+func fileExists(filename string) bool {
+	f, err := os.Open(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	checkErr(err)
+	checkErr(f.Close())
+	return true
 }

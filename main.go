@@ -1,3 +1,8 @@
+/*
+TODO:
+ - SSE randomly dies, ensure keep-alive is active, try pinging
+ - if that doesn't work replace with websocket
+*/
 package main
 
 import (
