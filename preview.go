@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,24 +15,25 @@ import (
 
 func serveHTTP(addr string, port int, default_path string) {
 	path := default_path
+
 	ch := make(chan struct{})
 	watch, err := newWatcher(
-		func(p string) bool {
-			return p == path
-		},
-		func() {
-			ch <- struct{}{}
-		},
+		func(p string) bool { return p == path },
+		func() { ch <- struct{}{} },
 	)
 	checkErr(err)
 	watch.w.Add(".")
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var req_path string
+
 		log.Println("->", r.Method, r.URL.Path)
+
 		if r.URL.Path == "/" {
 			path = default_path
 			goto default_route
 		}
+
 		req_path = strings.TrimPrefix(r.URL.Path, "/")
 		if fileExists(req_path) {
 			switch strings.ToLower(filepath.Ext(req_path)) {
@@ -42,35 +44,41 @@ func serveHTTP(addr string, port int, default_path string) {
 			http.ServeFile(w, r, req_path)
 			return
 		}
+
 		w.WriteHeader(404)
 		fmt.Fprintln(w, "404", r.URL.Path, "was not found on this server.")
 		return
+
 	default_route:
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, boilerplateHTML)
-		fmt.Fprintf(w, "<title>[live preview] %s</title>\n", path)
-		fmt.Fprint(w, boilerplateCSS)
-		fmt.Fprint(w, renderJS)
-		fmt.Fprint(w, previewJS)
-		fmt.Fprint(w, "</head><body>")
-		w.Write(render(path))
-		fmt.Fprint(w, "</body></html>")
+		fmt.Fprint(w, boilerplateHTML,
+			"<title>[live preview] ", path, "</title>\n",
+			boilerplateCSS, renderJS, previewJS, "</head><body>",
+			render(path), "</body></html>")
 	})
 	http.HandleFunc("/es", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("->", r.Method, r.URL)
+
 		w.Header().Add("Content-Type", "text/event-stream")
 		w.Header().Add("Access-Control-Allow-Origin", "*")
+
 		id := time.Now().Unix()
 		log.Printf("[event-source:%d] connected", id)
+
+		sender := func(evt string) {
+			fmt.Fprint(w, evt, "\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+				log.Printf("[event-source:%d] sent event: %#v", id, evt)
+			}
+		}
+
 		for {
 			select {
+			case <-time.After(time.Second * 15):
+				sender("data: ")
 			case <-ch:
-				evt := fmt.Sprintf("id: %d\r\nevent: update\r\ndata: %d\r\n\r\n", id, time.Now().Unix())
-				fmt.Fprint(w, evt)
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-					log.Printf("[event-source:%d] sent event: %#v", id, evt)
-				}
+				sender(fmt.Sprintf("id: %d\nevent: update\ndata: %d", id, time.Now().Unix()))
 			case <-r.Context().Done():
 				log.Printf("[event-source:%d] exited", id)
 				return
@@ -79,12 +87,12 @@ func serveHTTP(addr string, port int, default_path string) {
 	})
 	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("->", r.Method, r.URL)
-		w.Write(render(path))
+		io.WriteString(w, render(path))
 	})
 
 	listenAddr := fmt.Sprintf("%s:%d", addr, port)
-	log.Println("listening on", listenAddr, "(HTTP) ...")
-	log.Fatalln(http.ListenAndServe(listenAddr, nil))
+	log.Print("preview available at: http://", listenAddr)
+	log.Fatal(http.ListenAndServe(listenAddr, nil))
 }
 
 type event struct {
@@ -139,13 +147,7 @@ func (w *watcher) dispatch() {
 	for e := range w.events {
 		diff := time.Since(last) - time.Since(e.t)
 		last = e.t
-		// log.Println("got:", path.Base(e.filename), diff)
-		if !w.validator(e.filename) {
-			// log.Println("file is not valid,          skipping...")
-			continue
-		}
-		if diff < time.Millisecond*100 {
-			// log.Println("last event was < 100ms ago, skipping...")
+		if !w.validator(e.filename) || diff < time.Millisecond*100 {
 			continue
 		}
 		go w.callback()

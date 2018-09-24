@@ -1,13 +1,12 @@
 /*
 TODO:
- - SSE randomly dies, ensure keep-alive is active, try pinging
- - if that doesn't work replace with websocket
+ - add lightbox w/ <a target=_blank> to <img>
 */
 package main
 
 import (
 	"flag"
-	"io"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -17,10 +16,10 @@ import (
 	"github.com/russross/blackfriday"
 )
 
-func render(path string) []byte {
+func render(path string) string {
 	markdown, err := ioutil.ReadFile(path)
 	checkErr(err)
-	return blackfriday.MarkdownCommon(markdown)
+	return string(blackfriday.MarkdownCommon(markdown))
 }
 
 func main() {
@@ -29,48 +28,27 @@ func main() {
 		port    int
 		preview bool
 	)
-	flag.StringVar(
-		&addr,
-		"addr",
-		"",
-		"(preview only) leave blank for 0.0.0.0",
-	)
-	flag.IntVar(
-		&port,
-		"port",
-		8080,
-		"(preview only)",
-	)
-	flag.BoolVar(
-		&preview,
-		"preview",
-		false,
-		"start an HTTP server to preview live changes to md files",
-	)
+	flag.StringVar(&addr, "addr", "", "(preview only) leave blank for 0.0.0.0")
+	flag.IntVar(&port, "port", 8080, "(preview only)")
+	flag.BoolVar(&preview, "preview", false, "start an HTTP server to preview live changes to md files")
 	flag.Parse()
+	args := flag.Args()
 
 	if preview {
-		if len(flag.Args()) != 1 {
+		if len(args) != 1 {
 			log.Fatalln("usage: md -preview [MARKDOWN FILE]")
 		}
-		serveHTTP(addr, port, flag.Args()[0])
+		serveHTTP(addr, port, args[0])
 	}
 
-	for _, path := range flag.Args() {
+	for _, path := range args {
 		filename := strings.TrimSuffix(path, filepath.Ext(path)) + ".html"
+
 		f, err := os.Create(filename)
 		checkErr(err)
-		_, err = io.WriteString(f, boilerplateHTML)
-		checkErr(err)
-		_, err = io.WriteString(f, boilerplateCSS)
-		checkErr(err)
-		_, err = io.WriteString(f, renderJS)
-		checkErr(err)
-		_, err = io.WriteString(f, "</head><body>")
-		checkErr(err)
-		_, err = f.Write(render(path))
-		checkErr(err)
-		_, err = io.WriteString(f, "</body></html>")
+		_, err = fmt.Fprint(f, boilerplateHTML, boilerplateCSS, renderJS,
+			"</head><body>", render(path), "</body></html>",
+		)
 		checkErr(err)
 		checkErr(f.Close())
 
