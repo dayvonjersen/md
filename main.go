@@ -307,64 +307,25 @@ document.addEventListener("DOMContentLoaded", contentloadedCallback);
 
 const previewJS = `
         <script>
-var Sorbet = (function(S){
+let es = new EventSource("/es");
 
-    /**
-     * eventSource
-     *
-     * Create an EventSource from url and attach event listeners in format:
-     * listeners = {
-     *   "eventname": function(event) { ... }
-     * }
-     */
-    S.eventSource = function(url, listeners) {
-        var es = new EventSource(url);
-        es.retryCount = es.retryCount || 0;
-        if(es.retryCount > 5) {
-            console.log("EventSource error! Connecting to "+url
-                    +" FAILED after "+es.retryCount+" retries :(");
-        }
+window.addEventListener("popstate",     es.close, false);
+window.addEventListener("beforeunload", es.close, false);
+window.addEventListener("unload",       es.close, false);
 
-        window.addEventListener("popstate",     function(){es.close();}, false);
-        window.addEventListener("beforeunload", function(){es.close();}, false);
-        window.addEventListener("unload",       function(){es.close();}, false);
+es.addEventListener('error', (event) => {
+    console.error("EventSource error!");
+});
 
-        es.addEventListener('error', function(event){
-            console.log("EventSource error!");
-
-            //  getting an error event and a readyState of closed
-            //  means that there was a connection error and the 
-            //  eventsource must be manually re-opened
-            //
-            //  NOTE(tso): this just spams the console if the server is down,
-            //  disabling for now until we can find a better solution
-            //
-            // if(es.readyState === EventSource.CLOSED) {
-            //     es.close();
-            //     es.retryCount++
-            //     es = S.eventSource(url, listeners);
-            // }
-        });
-
-        Object.keys(listeners).forEach(function(event){
-            es.addEventListener(event, listeners[event]);
-        });
-        return es;
-    };
-
-    return S;
-}(Sorbet || {}));
-    Sorbet.eventSource("/es", {
-        "update": function(evt) {
-            var scrollY = window.scrollY;
-            fetch("/update")
-            .then((response) => response.text())
-            .then((html) => {
-                document.body.innerHTML = html;
-                contentloadedCallback();
-                window.scrollTo(0, scrollY);
-            })
-        }
+es.addEventListener("update", (evt) => {
+    let scrollY = window.scrollY;
+    fetch("/update")
+    .then((response) => response.text())
+    .then((html) => {
+        document.body.innerHTML = html;
+        contentloadedCallback();
+        window.scrollTo(0, scrollY);
     });
+});
         </script>
 `
