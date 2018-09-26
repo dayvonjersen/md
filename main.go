@@ -1,7 +1,3 @@
-/*
-TODO:
- - add lightbox w/ <a target=_blank> to <img>
-*/
 package main
 
 import (
@@ -36,7 +32,7 @@ func main() {
 
 	if preview {
 		if len(args) != 1 {
-			log.Fatalln("usage: md -preview [MARKDOWN FILE]")
+			log.Fatal("usage: md -preview [MARKDOWN FILE]")
 		}
 		serveHTTP(addr, port, args[0])
 	}
@@ -294,12 +290,75 @@ a.hashbang:hover {
 
 const renderJS = `
         <script>
-var contentloadedCallback = () => {
+let lightbox = {
+    imgElement: null,
+    active: false,
+    toggle: () => {
+        document.documentElement.style.overflow = lightbox.active ? "hidden" : "visible";
+        if(!lightbox.imgElement) return;
+    	lightbox.imgElement.style.position  = lightbox.active ? "fixed" : "static";
+    	lightbox.imgElement.style.width     = lightbox.active ? "95%" : "auto";
+        lightbox.imgElement.style.boxShadow = lightbox.active ? "rgba(0, 0, 0, 0.72) 0px 0px 0px 50vh" : "none";
+        lightbox.imgElement.style.left = !lightbox.active ? 0 : ((window.innerWidth - lightbox.imgElement.getBoundingClientRect().width) / 2) + "px"; 
+    	lightbox.imgElement.style.top  = !lightbox.active ? 0 : ((window.innerHeight - lightbox.imgElement.getBoundingClientRect().height ) / 2) + "px";
+    },
+    close: () => {
+        lightbox.active = false;
+        lightbox.toggle();
+    }
+}
+
+let contentloadedCallback = () => {
     [].forEach.call(document.querySelectorAll("h1,h2,h3,h4,h5,h6"), (hElement) => {
         hElement.id = hElement.textContent.toLowerCase().replace(/[^a-z0-9_]+/g, '-')
         hElement.insertAdjacentHTML("afterbegin", '<a href="#'+hElement.id+'" class="hashbang">#</a>')
     });
+
     [].forEach.call(document.querySelectorAll("table"), (tableElement) => tableElement.setAttribute("border", "1"));
+    
+    document.documentElement.addEventListener("click", lightbox.close); 
+
+    window.addEventListener("keyup", (e) => {
+        if(!lightbox.active) return;
+        if(e.key === "Escape") {
+            lightbox.close();
+            return;
+        }
+
+        let imgs = document.querySelectorAll("img");
+        if(imgs.length < 2) return;
+
+        let idx  = [].findIndex.call(imgs, (img) => img === lightbox.imgElement);
+
+        switch(e.key) {
+        default: return;
+        case "ArrowUp":  case "ArrowLeft":  idx--; break;
+        case "ArrowDown":case "ArrowRight": idx++; break;
+        }
+
+        if(idx < 0) idx = imgs.length - 1;
+        if(idx >= imgs.length) idx = 0;
+
+        lightbox.close();
+        lightbox.imgElement = imgs[idx];
+        lightbox.active = true;
+        lightbox.toggle();
+    });
+
+    [].forEach.call(document.querySelectorAll("img"), (imgElement) => {
+        let anchorElement = document.createElement("a");
+        anchorElement.setAttribute("href", imgElement.src);
+        anchorElement.setAttribute("target", "_blank");
+        imgElement.parentElement.appendChild(anchorElement)
+        anchorElement.appendChild(imgElement)
+        anchorElement.addEventListener("click", (e) => {
+        	e.preventDefault();
+            e.stopPropagation();
+            lightbox.imgElement = imgElement;
+        	lightbox.active = !lightbox.active;
+        	lightbox.toggle();
+        });
+    });
 };
 document.addEventListener("DOMContentLoaded", contentloadedCallback);
         </script>
