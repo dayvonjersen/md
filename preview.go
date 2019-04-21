@@ -146,10 +146,10 @@ func (w *watcher) dispatch() {
 	var last time.Time
 	for e := range w.events {
 		diff := time.Since(last) - time.Since(e.t)
-		last = e.t
 		if !w.validator(e.filename) || diff < time.Millisecond*100 {
 			continue
 		}
+		last = e.t
 		go w.callback()
 	}
 }
