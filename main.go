@@ -66,6 +66,10 @@ const boilerplateHTML = `<!DOCTYPE html>
 
 const boilerplateCSS = `
         <style>
+*, *::after, *::before {
+    box-sizing: border-box;
+}
+
 :root {
     font-size: 14px;
     line-height: 1.5;
@@ -109,7 +113,9 @@ p {
 
 img {
     max-width: 100%;
+    max-height: 100%;
     vertical-align: middle;
+    z-index: 1;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -285,6 +291,10 @@ a.hashbang:hover {
         width: calc(100% - 3rem);
     }
 }
+
+a.active {
+    display: block;
+}
         </style>
 `
 
@@ -295,12 +305,24 @@ let lightbox = {
     active: false,
     toggle: () => {
         document.documentElement.style.overflow = lightbox.active ? "hidden" : "visible";
+
         if(!lightbox.imgElement) return;
-    	lightbox.imgElement.style.position  = lightbox.active ? "fixed" : "static";
-    	lightbox.imgElement.style.width     = lightbox.active ? "95%" : "auto";
-        lightbox.imgElement.style.boxShadow = lightbox.active ? "rgba(0, 0, 0, 0.72) 0px 0px 0px 50vh" : "none";
-        lightbox.imgElement.style.left = !lightbox.active ? 0 : ((window.innerWidth - lightbox.imgElement.getBoundingClientRect().width) / 2) + "px"; 
-    	lightbox.imgElement.style.top  = !lightbox.active ? 0 : ((window.innerHeight - lightbox.imgElement.getBoundingClientRect().height ) / 2) + "px";
+        
+        let rect = lightbox.imgElement.getBoundingClientRect();
+        if(lightbox.active) {
+            lightbox.imgElement.parentElement.classList.add("active");
+            lightbox.imgElement.parentElement.style.backgroundImage = "url("+lightbox.imgElement.src+")";
+            lightbox.imgElement.parentElement.style.width  = rect.width + "px";
+            lightbox.imgElement.parentElement.style.height = rect.height + "px";
+        } else {
+            lightbox.imgElement.parentElement.classList.remove("active");
+        }
+
+        lightbox.imgElement.style.position  = lightbox.active ? "fixed" : "static";
+        lightbox.imgElement.style.boxShadow = lightbox.active ? "rgba(254,254,254,0.53) 0 0 50vw -6vw, rgba(0,0,0,0.9) 0 0 0 100vh" : "none";
+        rect = lightbox.imgElement.getBoundingClientRect();
+        lightbox.imgElement.style.left = lightbox.active ? ((window.innerWidth  - rect.width )/2)+"px" : 0;
+        lightbox.imgElement.style.top  = lightbox.active ? ((window.innerHeight - rect.height)/2)+"px" : 0;
     },
     close: () => {
         lightbox.active = false;
@@ -352,11 +374,11 @@ let contentloadedCallback = () => {
         imgElement.parentElement.appendChild(anchorElement)
         anchorElement.appendChild(imgElement)
         anchorElement.addEventListener("click", (e) => {
-        	e.preventDefault();
+            e.preventDefault();
             e.stopPropagation();
             lightbox.imgElement = imgElement;
-        	lightbox.active = !lightbox.active;
-        	lightbox.toggle();
+            lightbox.active = !lightbox.active;
+            lightbox.toggle();
         });
     });
 };
